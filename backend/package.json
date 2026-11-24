@@ -3,11 +3,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "node --env-file-if-exists=.env --watch src/server.js",
-    "start": "node --env-file-if-exists=.env src/server.js",
-    "db:setup": "node --env-file-if-exists=.env src/db/setup.js",
-    "db:migrate": "node --env-file-if-exists=.env src/db/setup.js migrate",
-    "db:seed": "node --env-file-if-exists=.env src/db/setup.js seed"
+    "dev": "node --env-file-if-exists=.env --watch src/server.ts",
+    "start": "node --env-file-if-exists=.env src/server.ts",
+    "db:setup": "node --env-file-if-exists=.env src/db/setup.ts",
+    "db:migrate": "node --env-file-if-exists=.env src/db/setup.ts migrate",
+    "db:seed": "node --env-file-if-exists=.env src/db/setup.ts seed",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "exceljs": "4.4.0",
@@ -18,5 +19,12 @@
     "pdfkit": "^0.21.0",
     "pg": "^8.16.0",
     "zod": "^4.1.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.0.0",
+    "@types/pdfkit": "^0.17.0",
+    "@types/pg": "^8.0.0",
+    "typescript": "~5.9.3"
   }
 }

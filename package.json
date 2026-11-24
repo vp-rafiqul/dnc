@@ -2,18 +2,22 @@
   "name": "dnc-screening",
   "private": true,
   "packageManager": "pnpm@11.25.0",
-  "workspaces": ["frontend", "backend"],
+  "workspaces": [
+    "frontend",
+    "backend"
+  ],
   "scripts": {
-    "dev": "concurrently -k -n api,web \"node --env-file-if-exists=backend/.env --watch backend/src/server.js\" \"node frontend/scripts/next.mjs dev\"",
-    "build": "node frontend/scripts/next.mjs build",
-    "db:setup": "node --env-file-if-exists=backend/.env backend/src/db/setup.js",
-    "db:migrate": "node --env-file-if-exists=backend/.env backend/src/db/setup.js migrate",
-    "db:seed": "node --env-file-if-exists=backend/.env backend/src/db/setup.js seed"
+    "dev": "concurrently -k -n api,web \"node --env-file-if-exists=backend/.env --watch backend/src/server.ts\" \"node frontend/scripts/next.mts dev\"",
+    "build": "pnpm --filter @dnc/backend typecheck && node frontend/scripts/next.mts build",
+    "db:setup": "node --env-file-if-exists=backend/.env backend/src/db/setup.ts",
+    "db:migrate": "node --env-file-if-exists=backend/.env backend/src/db/setup.ts migrate",
+    "db:seed": "node --env-file-if-exists=backend/.env backend/src/db/setup.ts seed",
+    "typecheck": "pnpm -r typecheck"
   },
   "devDependencies": {
     "concurrently": "^9.2.1"
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=22.18.0"
   }
 }

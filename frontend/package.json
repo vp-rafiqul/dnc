@@ -2,14 +2,21 @@
   "name": "@dnc/frontend",
   "private": true,
   "scripts": {
-    "dev": "node scripts/next.mjs dev",
-    "build": "node scripts/next.mjs build",
-    "start": "node scripts/next.mjs start"
+    "dev": "node scripts/next.mts dev",
+    "build": "node scripts/next.mts build",
+    "start": "node scripts/next.mts start",
+    "typecheck": "node scripts/next.mts typegen && tsc --noEmit"
   },
   "dependencies": {
     "lucide-react": "^0.577.0",
     "next": "^16.2.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.0.0",
+    "typescript": "~5.9.3"
   }
 }
