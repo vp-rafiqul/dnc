@@ -5,6 +5,7 @@ if (!["http:", "https:"].includes(endpoint.protocol) || endpoint.pathname !== "/
 
 export default {
   poweredByHeader: false,
+  env: { NEXT_PUBLIC_API_ENDPOINT: endpoint.origin },
   async rewrites() {
     return [{ source: "/api/:path*", destination: `${endpoint.origin}/api/:path*` }]
   },

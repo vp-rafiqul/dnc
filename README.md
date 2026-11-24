@@ -10,8 +10,8 @@ A local Do Not Call screening demo with a Next.js App Router frontend, an Expres
 
 Use Node.js 22 or newer, pnpm, and PostgreSQL 17 or newer. The Compose file can start a local PostgreSQL instance if Docker is available.
 
-1. Check `backend/.env` and `frontend/.env`. If either file is missing, copy its sibling `.env.example`. Set a random `JWT_SECRET` of at least 32 bytes and a 12–128 character `ADMIN_PASSWORD`. The local workspace was initialized with generated credentials in `backend/.env`.
-2. Set the backend `DATABASE_URL`, `HOST`, and `PORT`, and the frontend `HOST`, `PORT`, and `API_ENDPOINT`. The endpoint is the backend origin, for example `http://127.0.0.1:4000`. Restart development or rebuild production after changing it.
+1. Check `backend/.env` and `frontend/.env`. If either file is missing, copy its sibling `.env.example`. Set a random `JWT_SECRET` of at least 32 bytes and a 12–128 character `ADMIN_PASSWORD`. Generate distinct values for `API_KEY_ENCRYPTION_SECRET` and `HISTORY_SEARCH_SECRET` with `node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))"`. Keep these values stable to preserve saved key access and phone searches. The local workspace was initialized with generated credentials in `backend/.env`.
+2. Set the backend `DATABASE_URL`, `HOST`, `PORT`, and `FRONTEND_ORIGIN`, and the frontend `HOST`, `PORT`, and `API_ENDPOINT`. The default backend origin is `http://127.0.0.1:4000`, and `FRONTEND_ORIGIN` must match the browser URL's origin, which defaults to `http://127.0.0.1:3000`. Restart development or rebuild the frontend after changing these settings.
 3. Start PostgreSQL with `docker compose --env-file backend/.env up -d --wait`, or use an existing PostgreSQL database matching `DATABASE_URL`. The Compose database settings use the `POSTGRES_*` variables from `backend/.env`.
 4. Run `pnpm install --frozen-lockfile`, then `pnpm db:setup`.
 5. Start both apps with `pnpm dev`. Open [the local app](http://127.0.0.1:3000) and sign in with `ADMIN_EMAIL` and `ADMIN_PASSWORD`.
@@ -32,7 +32,7 @@ If the terminal cannot run `pnpm`, use the project launcher from the repository 
 
 For an existing PostgreSQL server, create a dedicated database (for example, `CREATE DATABASE dnc;`) if it does not already exist, then point `DATABASE_URL` to it.
 
-- `pnpm db:migrate` applies the versioned SQL in `backend/src/db/migrations/001_initial.sql` and records it in `schema_migrations`.
+- `pnpm db:migrate` applies new SQL files in `backend/src/db/migrations` and records them in `schema_migrations`.
 - `pnpm db:seed` loads the synthetic registry and creates the first Super Admin from `ADMIN_EMAIL` and `ADMIN_PASSWORD`.
 - `pnpm db:setup` runs both in one transaction. Re-running either command preserves existing accounts and does not duplicate the seed records.
 
@@ -54,14 +54,30 @@ The attached FTC materials informed the sample result shape. The bundled records
 
 ## Screening API
 
-Send `POST /api/v1/screening/check` with JSON and the `X-API-Key` header. The frontend proxies `/api` to its configured endpoint; clients can also call the backend directly. A missing or revoked key returns `401`, a key without screening permission returns `403`, and invalid phone input returns `400`. An unavailable snapshot returns `503`.
+Call the backend directly on port `4000` with your API key:
 
 ```http
-POST /api/v1/screening/check
-Content-Type: application/json
+POST http://127.0.0.1:4000/api/v1/screening/check
 X-API-Key: YOUR_API_KEY
+Content-Type: application/json
 
 {"phone":"+1 (212) 555-0100"}
 ```
 
-The response contains `phone` in +1 format, `exists`, `federalMatch`, `stateMatches`, `source`, `generation`, `publishedAt`, and `checkedAt`. History masks numbers and shows the signed-in user's most recent 50 successful checks. A synthetic result cannot be used to determine whether a number may be called.
+Invalid or revoked keys return `401`, missing screening permission returns `403`, invalid phone input returns `400`, and an unavailable snapshot returns `503`.
+
+For signed-in workspace requests such as `GET /api/keys`, use `Authorization: Bearer ACCESS_TOKEN`. The workspace receives the session JWT as `accessToken` from `POST /api/auth/login`.
+
+The response contains `phone` in +1 format, `exists`, `federalMatch`, `stateMatches`, `source`, `generation`, `publishedAt`, and `checkedAt`. A synthetic result cannot be used to determine whether a number may be called.
+
+Each API key defaults to 60 requests per calendar minute, including keys created before the rate-limit migration. Under **API keys**, authorized users can set **Requests per minute** when creating a key or use **Edit limit** for an active key. Super Admins can grant **Customize rate limits on own API keys** to other roles. An edit takes effect immediately and counts requests already made in the current minute.
+
+**View details** shows a key's prefix, status, dates, and rate limit. Users with **Copy own API keys** can copy active keys with an encrypted value. Older keys stored only as hashes require a replacement to use this feature. Revocation removes the saved secret.
+
+Screening responses include `X-RateLimit-Limit` and `X-RateLimit-Remaining`. When a key reaches its limit, the API returns `429` and a `Retry-After` header with the number of seconds until the next minute.
+
+## History and reports
+
+History defaults to 10 rows per page, with options for 25, 50, and 100. You can combine a date range, channel, and any contiguous digits from a phone number. Dates include the entire selected day in the browser's time zone. Lookups from before migration 004 can only be searched by their visible last four digits.
+
+CSV, Excel, and PDF downloads include every matching row across all pages. Reports mask phone numbers and label their timestamps in UTC. History and downloads are scoped to the signed-in user.

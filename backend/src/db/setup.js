@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises"
+import { readdir, readFile } from "node:fs/promises"
 import { Pool } from "pg"
 import { z } from "zod"
 import { hashPassword } from "../modules/auth/auth.service.js"
@@ -12,15 +12,20 @@ const databaseUrl = process.env.DATABASE_URL
 if (!databaseUrl) throw new Error("Set DATABASE_URL in backend/.env")
 
 async function migrate(client) {
-  const version = "001_initial"
+  const directory = new URL("migrations/", import.meta.url)
+  const files = (await readdir(directory)).filter(file => file.endsWith(".sql")).sort()
   await client.query(`CREATE TABLE IF NOT EXISTS schema_migrations (
     version text PRIMARY KEY,
     applied_at timestamptz NOT NULL DEFAULT now()
   )`)
-  const applied = await client.query("SELECT 1 FROM schema_migrations WHERE version = $1", [version])
-  if (applied.rowCount) return
-  await client.query(await readFile(new URL("migrations/001_initial.sql", import.meta.url), "utf8"))
-  await client.query("INSERT INTO schema_migrations (version) VALUES ($1)", [version])
+  const { rows } = await client.query("SELECT version FROM schema_migrations")
+  const applied = new Set(rows.map(row => row.version))
+  for (const file of files) {
+    const version = file.slice(0, -4)
+    if (applied.has(version)) continue
+    await client.query(await readFile(new URL(file, directory), "utf8"))
+    await client.query("INSERT INTO schema_migrations (version) VALUES ($1)", [version])
+  }
 }
 
 async function seed(client) {
@@ -50,7 +55,7 @@ try {
     if (mode !== "seed") await migrate(client)
     if (mode !== "migrate") await seed(client)
     await client.query("COMMIT")
-    if (mode !== "seed") console.log("Database migration 001_initial is up to date.")
+    if (mode !== "seed") console.log("Database migrations are up to date.")
     if (mode !== "migrate") console.log("Super Admin and synthetic screening data are ready.")
   } catch (error) {
     await client.query("ROLLBACK")

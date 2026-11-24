@@ -9,12 +9,13 @@ export function normalizePhone(input) {
   return value.replace(/\D/g, "").slice(-10)
 }
 
-export function screeningService(repository) {
+export function screeningService(repository, historySearch) {
   return {
     async check(userId, body, channel) {
       const { phone } = z.object({ phone: z.string().max(40) }).parse(body)
       const digits = normalizePhone(phone)
-      const match = await repository.lookup(userId, digits, `+1 ••• ••• ${digits.slice(-4)}`, channel)
+      const tokens = historySearch.tokensFor(userId, digits)
+      const match = await repository.lookup(userId, digits, `+1 ••• ••• ${digits.slice(-4)}`, channel, tokens)
       if (!match) throw new HttpError(503, "The synthetic dataset is unavailable.")
       return {
         phone: `+1${digits}`,
@@ -27,6 +28,5 @@ export function screeningService(repository) {
         checkedAt: match.checked_at,
       }
     },
-    recent: repository.recent,
   }
 }

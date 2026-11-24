@@ -1,32 +1,37 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { api } from "../lib/api"
 
-export function useResource(path) {
-  const [data, setData] = useState(null)
-  const [error, setError] = useState("")
-  const [pending, setPending] = useState(Boolean(path))
+export function useResource(path, options) {
+  const [result, setResult] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const request = useRef(null)
 
-  const reload = useCallback(async (signal) => {
+  const reload = useCallback(async () => {
     if (!path) return
-    setPending(true)
-    setError("")
+    request.current?.abort()
+    const controller = new AbortController()
+    request.current = controller
+    const { signal } = controller
+    setLoading(true)
+    setResult(previous => previous?.path === path && previous.options === options
+      ? { ...previous, error: "" } : null)
     try {
-      const result = await api(path, { signal })
-      if (!signal?.aborted) setData(result)
+      const data = await api(path, { ...options, signal })
+      if (!signal.aborted) setResult({ path, options, data, error: "" })
     } catch (error) {
-      if (!signal?.aborted) setError(error.message)
+      if (!signal.aborted) setResult({ path, options, data: null, error: error.message })
     } finally {
-      if (!signal?.aborted) setPending(false)
+      if (!signal.aborted) setLoading(false)
     }
-  }, [path])
+  }, [path, options])
 
   useEffect(() => {
-    const controller = new AbortController()
-    void reload(controller.signal)
-    return () => controller.abort()
+    void reload()
+    return () => request.current?.abort()
   }, [reload])
 
-  return { data, pending, error, reload }
+  const current = path && result?.path === path && result.options === options ? result : null
+  return { data: current?.data ?? null, pending: Boolean(path && (loading || !current)), error: current?.error ?? "", reload }
 }

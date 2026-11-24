@@ -1,11 +1,28 @@
-export async function api(path, { body, headers, ...options } = {}) {
-  const response = await fetch(`/api${path}`, {
+let accessToken
+
+export function setAccessToken(token) {
+  accessToken = token
+}
+
+export function apiUrl(path) {
+  return `${process.env.NEXT_PUBLIC_API_ENDPOINT}/api${path}`
+}
+
+export async function api(path, { body, headers, sessionCookie = false, responseType = "json", ...options } = {}) {
+  const response = await fetch(apiUrl(path), {
     ...options,
     cache: "no-store",
-    headers: { "X-DNC-Workspace": "1", ...(body && { "Content-Type": "application/json" }), ...headers },
+    credentials: sessionCookie ? "include" : "omit",
+    headers: {
+      ...(accessToken && { Authorization: `Bearer ${accessToken}` }),
+      ...(sessionCookie && { "X-DNC-Workspace": "1" }),
+      ...(body !== undefined && { "Content-Type": "application/json" }),
+      ...headers,
+    },
     body: body === undefined ? undefined : JSON.stringify(body),
   })
   if (response.status === 204) return null
+  if (response.ok && responseType === "blob") return response.blob()
   const data = await response.json().catch(() => null)
   if (!response.ok || data === null) {
     const error = new Error(data?.error || "The API is unavailable. Try again shortly.")

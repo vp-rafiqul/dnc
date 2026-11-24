@@ -180,6 +180,7 @@ label small { font-weight: 400; }
 .lookup-row { margin-top: 5px; }
 .inline-form { margin: 10px 0 15px; }
 .inline-form label { flex: 1; max-width: 350px; }
+.inline-form .key-rate-field { max-width: 175px; }
 
 .example-list { display: grid; gap: 7px; }
 .example {
@@ -208,6 +209,15 @@ table { border-collapse: collapse; width: 100%; text-align: left; font-size: .91
 th, td { padding: 10px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
 th { background: var(--subtle); color: var(--muted); font-size: .85rem; font-weight: 650; }
 tbody tr:last-child td { border-bottom: 0; }
+.history-filters { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) minmax(0, 1.4fr); align-items: end; gap: 12px; }
+.history-filters .button-row { margin: 0; }
+.history-toolbar, .history-pagination { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+.history-toolbar { border-top: 1px solid var(--line); margin-top: 16px; padding-top: 13px; }
+.history-toolbar .button-row { margin: 0; }
+.history-pagination { border-top: 1px solid var(--line); margin-top: 12px; padding-top: 12px; }
+.history-pagination label, .history-pagination nav { display: flex; align-items: center; gap: 9px; }
+.history-pagination select { width: auto; }
+.history-pagination span { color: var(--muted); font-size: .9rem; }
 .permission-grid, .fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
 .fields { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 fieldset { min-width: 0; border: 1px solid var(--line); border-radius: 8px; }
@@ -237,6 +247,7 @@ input[type="checkbox"] { accent-color: var(--accent); margin: 4px 0 0; }
   .utility { justify-content: flex-start; }
   .utility .tag { margin-left: auto; }
   .fields, .permission-grid { grid-template-columns: 1fr; }
+  .history-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 440px) {
@@ -245,6 +256,7 @@ input[type="checkbox"] { accent-color: var(--accent); margin: 4px 0 0; }
   .lookup-row, .inline-form { flex-wrap: wrap; }
   .lookup-row > input, .inline-form > label { flex-basis: 100%; }
   .lookup-form .button { width: 100%; }
+  .history-filters { grid-template-columns: minmax(0, 1fr); }
   .login header .brand { font-size: .85rem; gap: 6px; }
   .login header .theme-switch button { padding-inline: 4px; }
 }

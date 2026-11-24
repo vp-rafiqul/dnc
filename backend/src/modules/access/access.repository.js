@@ -42,7 +42,7 @@ export function accessRepository(db) {
       ), invalidated AS (
         DELETE FROM sessions WHERE user_id IN (SELECT id FROM modified) AND NOT $4::boolean
       ), revoked AS (
-        UPDATE api_keys SET revoked_at = now()
+        UPDATE api_keys SET revoked_at = now(), encrypted_secret = NULL
         WHERE user_id IN (SELECT id FROM modified) AND NOT $4::boolean AND revoked_at IS NULL
       )
       SELECT id FROM modified`, [actorId, id, roleId, active])

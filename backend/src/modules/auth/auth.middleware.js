@@ -2,22 +2,25 @@ import { HttpError } from "../../errors.js"
 
 export const sessionCookie = "dnc_session"
 
-export function sessionAuth(service) {
-  return async (req, res, next) => {
-    const cookie = (req.get("cookie") || "").split(";").map(value => value.trim())
-      .find(value => value.startsWith(`${sessionCookie}=`))
-    if (!cookie) throw new HttpError(401, "Sign in to continue.")
-    Object.assign(req, await service.authenticate(cookie.slice(sessionCookie.length + 1)))
-    next()
-  }
+function bearerToken(req) {
+  return /^Bearer ([^\s,]+)$/i.exec(req.get("authorization") || "")?.[1]
 }
 
-export function browserMutation(req, res, next) {
-  if (["GET", "HEAD", "OPTIONS"].includes(req.method)) return next()
-  if (req.get("x-dnc-workspace") !== "1" || req.get("sec-fetch-site") === "cross-site") {
-    throw new HttpError(403, "This action requires the workspace.")
+export function readSessionCookie(req) {
+  return (req.get("cookie") || "").split(";").map(value => value.trim())
+    .find(value => value.startsWith(`${sessionCookie}=`))?.slice(sessionCookie.length + 1)
+}
+
+export function sessionAuth(service) {
+  return async (req, res, next) => {
+    const token = bearerToken(req)
+    if (!token) {
+      res.set("WWW-Authenticate", "Bearer")
+      throw new HttpError(401, "A bearer token is required.")
+    }
+    Object.assign(req, await service.authenticate(token))
+    next()
   }
-  next()
 }
 
 export function allow(...permissions) {

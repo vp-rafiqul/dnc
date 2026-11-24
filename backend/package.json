@@ -10,10 +10,12 @@
     "db:seed": "node --env-file-if-exists=.env src/db/setup.js seed"
   },
   "dependencies": {
+    "exceljs": "4.4.0",
     "express": "^5.2.1",
     "express-rate-limit": "^8.1.0",
     "helmet": "^8.1.0",
     "jose": "^6.1.0",
+    "pdfkit": "^0.21.0",
     "pg": "^8.16.0",
     "zod": "^4.1.0"
   }

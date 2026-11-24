@@ -12,6 +12,8 @@ export const permissions = {
     "history.read": "Read own screening history",
     "keys.list": "List own API keys",
     "keys.create": "Create own API keys",
+    "keys.reveal": "Copy own API keys",
+    "keys.update_rate_limit": "Customize rate limits on own API keys",
     "keys.revoke": "Revoke own API keys",
     "users.list": "List users",
     "users.create": "Create users",
