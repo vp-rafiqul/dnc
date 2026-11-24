@@ -1,5 +1,6 @@
 import type { NextFunction, Request, Response } from "express"
 import { ZodError } from "zod"
+import { Prisma } from "./generated/prisma/client.ts"
 
 export class HttpError extends Error {
   readonly status: number
@@ -16,10 +17,12 @@ export function errorMiddleware(error: unknown, _req: Request, res: Response, ne
     return res.status(400).json({ error: error.issues[0]?.message || "Invalid input." })
   }
   if (error instanceof HttpError) return res.status(error.status).json({ error: error.message })
+  if (error instanceof Prisma.PrismaClientKnownRequestError) {
+    if (error.code === "P2002") return res.status(409).json({ error: "That entry already exists." })
+    if (error.code === "P2003") return res.status(400).json({ error: "The selected role is unavailable." })
+  }
   const code = error && typeof error === "object" && "code" in error ? error.code : undefined
   const type = error && typeof error === "object" && "type" in error ? error.type : undefined
-  if (code === "23505") return res.status(409).json({ error: "That entry already exists." })
-  if (code === "23503") return res.status(400).json({ error: "The selected role is unavailable." })
   if (type === "entity.parse.failed") return res.status(400).json({ error: "Invalid JSON." })
   if (type === "entity.too.large") return res.status(413).json({ error: "Request is too large." })
 

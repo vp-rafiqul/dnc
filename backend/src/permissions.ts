@@ -24,6 +24,8 @@ export const permissions = {
 
 export type Permission = keyof typeof permissions.pages | keyof typeof permissions.actions
 export const permissionIds = Object.values(permissions).flatMap(group => Object.keys(group)) as Permission[]
+const knownPermissions = new Set<string>(permissionIds)
+export const isPermission = (id: string): id is Permission => knownPermissions.has(id)
 
 const resellerManagement: Permission[] = ["page.users", "page.roles", "users.list", "users.create", "users.update", "roles.list"]
 const resellerPages: Permission[] = ["page.screening", "page.history", "page.keys"]

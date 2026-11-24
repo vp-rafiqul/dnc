@@ -1,69 +1,66 @@
-import type { Pool } from "pg"
+import type { Database, Transaction } from "../../db/prisma.ts"
+import type { Prisma } from "../../generated/prisma/client.ts"
 import type { HistoryFilters, HistoryItem, HistoryPageData } from "../../../../shared/contracts.ts"
 
 export type SearchFilters = Omit<HistoryFilters, "phone"> & { token?: string; digits?: string }
-type PageRow = Pick<HistoryPageData, "items"> & { total: string; page: string }
-type ReportRow = HistoryItem<Date> & { cursor_time: string }
 
-const reportFields = "id, generation_id, masked_phone, exists_in_registry, channel, checked_at"
-const filterSql = `user_id = $1
-  AND ($2::timestamptz IS NULL OR checked_at >= $2)
-  AND ($3::timestamptz IS NULL OR checked_at < $3)
-  AND ($4::text IS NULL OR channel = $4)
-  AND ($5::text IS NULL OR $5 = ANY(phone_search_tokens)
-    OR (phone_search_tokens IS NULL AND strpos(right(masked_phone, 4), $6::text) > 0))`
+const select = {
+  id: true, generation_id: true, masked_phone: true, exists_in_registry: true, channel: true, checked_at: true,
+} satisfies Prisma.ScreeningEventSelect
+const orderBy = [{ checked_at: "desc" }, { id: "desc" }] satisfies Prisma.ScreeningEventOrderByWithRelationInput[]
+type HistoryRow = Prisma.ScreeningEventGetPayload<{ select: typeof select }>
 
-function filterParams(userId: string, { from, until, channel, token, digits }: SearchFilters) {
-  return [userId, from ?? null, until ?? null, channel ?? null, token ?? null, digits ?? null]
-}
-
-export function historyRepository(db: Pool) {
+function whereHistory(userId: string, { from, until, channel, token, digits }: SearchFilters): Prisma.ScreeningEventWhereInput {
   return {
-    async page(userId: string, filters: SearchFilters, page: number, pageSize: number): Promise<HistoryPageData> {
-      const { rows: [result] } = await db.query<PageRow>(`WITH filtered AS NOT MATERIALIZED (
-        SELECT ${reportFields} FROM screening_events WHERE ${filterSql}
-      ), totals AS (
-        SELECT count(*) AS total FROM filtered
-      ), pagination AS (
-        SELECT total, least($7::integer, greatest(1, (total + $8::integer - 1) / $8)) AS page FROM totals
-      )
-      SELECT total, page, COALESCE((
-        SELECT json_agg(batch ORDER BY batch.checked_at DESC, batch.id DESC) FROM (
-          SELECT * FROM filtered ORDER BY checked_at DESC, id DESC
-          OFFSET ((pagination.page - 1) * $8) LIMIT $8
-        ) batch
-      ), '[]') AS items FROM pagination`, [...filterParams(userId, filters), page, pageSize])
-      return { items: result.items, total: Number(result.total), page: Number(result.page), pageSize }
-    },
-    async *report(userId: string, filters: SearchFilters, signal: AbortSignal): AsyncGenerator<HistoryItem<Date>> {
-      const client = await db.connect()
-      try {
-        await client.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY")
-        const params = filterParams(userId, filters)
-        let cursorTime: string | null = null
-        let cursorId: string | null = null
-        while (!signal.aborted) {
-          const rows: ReportRow[] = (await client.query<ReportRow>(`SELECT ${reportFields}, checked_at::text AS cursor_time
-            FROM screening_events WHERE ${filterSql}
-              AND ($7::timestamptz IS NULL OR (checked_at, id) < ($7::timestamptz, $8::uuid))
-            ORDER BY checked_at DESC, id DESC LIMIT 500`, [...params, cursorTime, cursorId])).rows
-          for (const { cursor_time, ...row } of rows) {
-            if (signal.aborted) break
-            yield row
-          }
-          if (rows.length < 500) break
-          const last = rows[rows.length - 1]
-          cursorTime = last.cursor_time
-          cursorId = last.id
-        }
-        await client.query("COMMIT")
-      } catch (error) {
-        await client.query("ROLLBACK")
-        throw error
-      } finally {
-        client.release()
-      }
-    },
+    user_id: userId,
+    checked_at: from || until ? { gte: from, lt: until } : undefined,
+    channel,
+    OR: token && digits ? [
+      { phone_search_tokens: { has: token } },
+      { legacy_phone_suffix: { contains: digits } },
+    ] : undefined,
   }
 }
 
+function toHistoryItem(row: HistoryRow): HistoryItem<Date> {
+  return { ...row, channel: row.channel === "api" ? "api" : "web" }
+}
+
+async function* reportRows(tx: Transaction, where: Prisma.ScreeningEventWhereInput, signal: AbortSignal) {
+  const batchSize = 500
+  let cursor: string | undefined
+  while (!signal.aborted) {
+    const batch: HistoryRow[] = await tx.screeningEvent.findMany({
+      where, select, orderBy, take: batchSize,
+      cursor: cursor ? { id: cursor } : undefined,
+      skip: cursor ? 1 : 0,
+    })
+    for (const row of batch) {
+      if (signal.aborted) return
+      yield toHistoryItem(row)
+    }
+    if (batch.length < batchSize) return
+    cursor = batch[batch.length - 1].id
+  }
+}
+
+export function historyRepository(db: Database) {
+  return {
+    async page(userId: string, filters: SearchFilters, page: number, pageSize: number): Promise<HistoryPageData> {
+      const where = whereHistory(userId, filters)
+      return db.$transaction(async tx => {
+        const total = await tx.screeningEvent.count({ where })
+        const current = Math.min(page, Math.max(1, Math.ceil(total / pageSize)))
+        const rows = await tx.screeningEvent.findMany({ where, select, orderBy, skip: (current - 1) * pageSize, take: pageSize })
+        const items = rows.map(row => ({ ...toHistoryItem(row), checked_at: row.checked_at.toISOString() }))
+        return { items, total, page: current, pageSize }
+      }, { isolationLevel: "RepeatableRead" })
+    },
+    report(userId: string, filters: SearchFilters, signal: AbortSignal, write: (rows: AsyncIterable<HistoryItem<Date>>) => Promise<void>) {
+      const where = whereHistory(userId, filters)
+      return db.$transaction(tx => write(reportRows(tx, where, signal)), {
+        isolationLevel: "RepeatableRead", timeout: 5 * 60_000,
+      })
+    },
+  }
+}

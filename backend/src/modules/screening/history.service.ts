@@ -1,6 +1,6 @@
 import { z } from "zod"
 import { HttpError } from "../../errors.ts"
-import type { HistoryFilters } from "../../../../shared/contracts.ts"
+import type { HistoryFilters, HistoryItem } from "../../../../shared/contracts.ts"
 import type { historyRepository, SearchFilters } from "./history.repository.ts"
 import type { historySearch } from "./history-search.ts"
 
@@ -39,8 +39,8 @@ export function historyService(repository: ReturnType<typeof historyRepository>,
       const { page, pageSize, ...input } = pageInput.parse(body ?? {})
       return repository.page(userId, filters(userId, input), page, pageSize)
     },
-    report(userId: string, body: unknown, signal: AbortSignal) {
-      return repository.report(userId, filters(userId, filterInput.parse(body ?? {})), signal)
+    report(userId: string, body: unknown, signal: AbortSignal, write: (rows: AsyncIterable<HistoryItem<Date>>) => Promise<void>) {
+      return repository.report(userId, filters(userId, filterInput.parse(body ?? {})), signal, write)
     },
   }
 }

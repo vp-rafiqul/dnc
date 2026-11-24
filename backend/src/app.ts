@@ -2,7 +2,7 @@ import express from "express"
 import { rateLimit } from "express-rate-limit"
 import type { Options as RateLimitOptions } from "express-rate-limit"
 import helmet from "helmet"
-import type { Pool } from "pg"
+import type { Database } from "./db/prisma.ts"
 import type { Config } from "./config.ts"
 import { errorMiddleware } from "./errors.ts"
 import { browserCors } from "./middleware/cors.ts"
@@ -24,7 +24,7 @@ import { historyRepository } from "./modules/screening/history.repository.ts"
 import { historySearch } from "./modules/screening/history-search.ts"
 import { historyService } from "./modules/screening/history.service.ts"
 
-export function createApp(db: Pool, settings: Config) {
+export function createApp(db: Database, settings: Config) {
   const app = express()
   const auth = authService(authRepository(db), settings.jwtSecret)
   const keys = keysService(keysRepository(db), settings.apiKeyEncryptionKey)
@@ -59,7 +59,7 @@ export function createApp(db: Pool, settings: Config) {
   }))
   app.use(parseJson)
   app.get("/api/health", async (req, res) => {
-    await db.query("SELECT 1")
+    await db.registryGeneration.findFirst({ select: { id: true } })
     res.json({ ok: true })
   })
   app.use("/api/auth", authController(auth, authenticate, restoreSession, limiter(12, "Too many sign-in attempts. Try again in a minute."), settings.secureCookie))

@@ -1,10 +1,10 @@
 # DNC Screening
 
-A local Do Not Call screening demo with a Next.js App Router frontend, an Express API, and PostgreSQL.
+A local Do Not Call screening demo with a Next.js App Router frontend, an Express API, Prisma, and PostgreSQL.
 
 - `frontend/app` contains the routes. Page components live in `frontend/components`.
 - `backend/src/modules` contains the authentication, access management, API key, and screening modules, with separate controllers, middleware, services, and repositories where applicable.
-- `backend/src/db` contains PostgreSQL migrations and fictional federal and state entries. The active snapshot and the lookup event are read and recorded together.
+- `backend/prisma` contains the Prisma schema and PostgreSQL migrations. `backend/src/db` contains the Prisma client factory and the fictional registry seed. The active snapshot and the lookup event are read and recorded together.
 
 ## Start locally
 
@@ -34,9 +34,12 @@ If the terminal cannot run `pnpm`, use the project launcher from the repository 
 
 For an existing PostgreSQL server, create a dedicated database (for example, `CREATE DATABASE dnc;`) if it does not already exist, then point `DATABASE_URL` to it.
 
-- `pnpm db:migrate` applies new SQL files in `backend/src/db/migrations` and records them in `schema_migrations`.
-- `pnpm db:seed` loads the synthetic registry and creates the first Super Admin from `ADMIN_EMAIL` and `ADMIN_PASSWORD`.
-- `pnpm db:setup` runs both in one transaction. Re-running either command preserves existing accounts and does not duplicate the seed records.
+- `pnpm db:generate` generates Prisma Client from `backend/prisma/schema.prisma`.
+- `pnpm db:migrate` runs Prisma Migrate to apply pending migrations in `backend/prisma/migrations`.
+- `pnpm db:seed` runs the Prisma seed to load the synthetic registry and create the first Super Admin from `ADMIN_EMAIL` and `ADMIN_PASSWORD`.
+- `pnpm db:setup` generates the client, deploys migrations, and then seeds. Re-running setup preserves existing accounts and does not duplicate the seed records.
+
+When upgrading a database that already ran the five legacy SQL migrations, run `pnpm db:baseline` once before `pnpm db:setup`. Baselining records the existing schema in Prisma's migration history. For a fresh database, run `pnpm db:setup` directly.
 
 ## Manage access
 
@@ -88,6 +91,6 @@ Screening responses include `X-RateLimit-Limit` and `X-RateLimit-Remaining`. Whe
 
 ## History and reports
 
-History defaults to 10 rows per page, with options for 25, 50, and 100. You can combine a date range, channel, and any contiguous digits from a phone number. Dates include the entire selected day in the browser's time zone. Lookups from before migration 004 can only be searched by their visible last four digits.
+History defaults to 10 rows per page, with options for 25, 50, and 100. You can combine a date range, channel, and any contiguous digits from a phone number. Dates include the entire selected day in the browser's time zone. Older lookups without phone search tokens can only be searched by their visible last four digits.
 
 CSV, Excel, and PDF downloads include every matching row across all pages. Reports mask phone numbers and label their timestamps in UTC. History and downloads are scoped to the signed-in user.

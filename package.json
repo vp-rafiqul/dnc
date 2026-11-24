@@ -7,11 +7,13 @@
     "backend"
   ],
   "scripts": {
-    "dev": "concurrently -k -n api,web \"node --env-file-if-exists=backend/.env --watch backend/src/server.ts\" \"node frontend/scripts/next.mts dev\"",
+    "dev": "concurrently -k -n api,web \"pnpm --filter @dnc/backend dev\" \"node frontend/scripts/next.mts dev\"",
     "build": "pnpm --filter @dnc/backend typecheck && node frontend/scripts/next.mts build",
-    "db:setup": "node --env-file-if-exists=backend/.env backend/src/db/setup.ts",
-    "db:migrate": "node --env-file-if-exists=backend/.env backend/src/db/setup.ts migrate",
-    "db:seed": "node --env-file-if-exists=backend/.env backend/src/db/setup.ts seed",
+    "db:setup": "pnpm --filter @dnc/backend db:setup",
+    "db:generate": "pnpm --filter @dnc/backend db:generate",
+    "db:migrate": "pnpm --filter @dnc/backend db:migrate",
+    "db:baseline": "pnpm --filter @dnc/backend db:baseline",
+    "db:seed": "pnpm --filter @dnc/backend db:seed",
     "typecheck": "pnpm -r typecheck"
   },
   "devDependencies": {

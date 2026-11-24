@@ -1,70 +1,104 @@
-import type { Pool } from "pg"
+import type { Database } from "../../db/prisma.ts"
+import type { Prisma } from "../../generated/prisma/client.ts"
 import type { ApiKey } from "../../../../shared/contracts.ts"
-import type { AccountPrincipalRow } from "../auth/auth.service.ts"
+import { principalRow } from "../auth/auth.repository.ts"
 
-type KeyRow = ApiKey<Date>
-type KeySecret = Pick<KeyRow, "revoked_at"> & { secret_hash: string; encrypted_secret: Buffer | null }
-type KeyOwner = AccountPrincipalRow & { key_id: string }
+const minuteMs = 60_000
+const keyFields = {
+  id: true, name: true, prefix: true, created_at: true, revoked_at: true,
+  rate_limit_per_minute: true, encrypted_secret: true,
+} satisfies Prisma.ApiKeySelect
+const usageFields = { rate_limit_per_minute: true, rate_request_count: true } satisfies Prisma.ApiKeySelect
 
-interface RequestUsage {
-  request_limit: number
-  remaining: number
-  retry_after: number
-  allowed: boolean
+type KeyRow = Prisma.ApiKeyGetPayload<{ select: typeof keyFields }>
+type Usage = Prisma.ApiKeyGetPayload<{ select: typeof usageFields }>
+
+function publicKey({ encrypted_secret, ...row }: KeyRow): ApiKey<Date> {
+  return { ...row, can_reveal: encrypted_secret !== null }
 }
 
-const keyFields = "id, name, prefix, created_at, revoked_at, rate_limit_per_minute, encrypted_secret IS NOT NULL AS can_reveal"
+function usage(row: Usage, windowStart: Date, allowed: boolean) {
+  return {
+    allowed,
+    request_limit: row.rate_limit_per_minute,
+    remaining: Math.max(0, row.rate_limit_per_minute - row.rate_request_count),
+    retry_after: Math.max(1, Math.ceil((windowStart.getTime() + minuteMs - Date.now()) / 1000)),
+  }
+}
 
-export function keysRepository(db: Pool) {
+export function keysRepository(db: Database) {
   return {
     async list(userId: string) {
-      return (await db.query<KeyRow>(`SELECT ${keyFields} FROM api_keys
-        WHERE user_id = $1 ORDER BY created_at DESC, id DESC`, [userId])).rows
+      const keys = await db.apiKey.findMany({
+        where: { user_id: userId }, select: keyFields, orderBy: [{ created_at: "desc" }, { id: "desc" }],
+      })
+      return keys.map(publicKey)
     },
     async create(userId: string, name: string, prefix: string, hash: string, rateLimitPerMinute: number, encryptedSecret: Buffer) {
-      return (await db.query<KeyRow>(`INSERT INTO api_keys (user_id, name, prefix, secret_hash, rate_limit_per_minute, encrypted_secret)
-        VALUES ($1, $2, $3, $4, $5, $6) RETURNING ${keyFields}`, [userId, name, prefix, hash, rateLimitPerMinute, encryptedSecret])).rows[0]
+      const key = await db.apiKey.create({
+        data: {
+          user_id: userId, name, prefix, secret_hash: hash,
+          rate_limit_per_minute: rateLimitPerMinute, encrypted_secret: new Uint8Array(encryptedSecret),
+        },
+        select: keyFields,
+      })
+      return publicKey(key)
     },
-    async findSecret(userId: string, id: string): Promise<KeySecret | undefined> {
-      return (await db.query<KeySecret>(`SELECT revoked_at, secret_hash, encrypted_secret FROM api_keys
-        WHERE user_id = $1 AND id = $2`, [userId, id])).rows[0]
+    async findSecret(userId: string, id: string) {
+      return db.apiKey.findFirst({
+        where: { id, user_id: userId },
+        select: { revoked_at: true, secret_hash: true, encrypted_secret: true },
+      })
     },
-    async updateRateLimit(userId: string, id: string, rateLimitPerMinute: number): Promise<KeyRow | undefined> {
-      return (await db.query<KeyRow>(`UPDATE api_keys SET rate_limit_per_minute = $3
-        WHERE user_id = $1 AND id = $2 AND revoked_at IS NULL
-        RETURNING ${keyFields}`, [userId, id, rateLimitPerMinute])).rows[0]
+    async updateRateLimit(userId: string, id: string, rateLimitPerMinute: number) {
+      const [key] = await db.apiKey.updateManyAndReturn({
+        where: { id, user_id: userId, revoked_at: null }, data: { rate_limit_per_minute: rateLimitPerMinute }, select: keyFields,
+      })
+      return key ? publicKey(key) : undefined
     },
-    async consumeRequest(id: string): Promise<RequestUsage | undefined> {
-      const { rows } = await db.query<RequestUsage>(`WITH locked_key AS MATERIALIZED (
-        SELECT id, rate_limit_per_minute, rate_window_start, rate_request_count
-        FROM api_keys WHERE id = $1 AND revoked_at IS NULL FOR UPDATE
-      ), checked_at AS MATERIALIZED (
-        SELECT locked_key.*, clock_timestamp() AS checked FROM locked_key
-      ), usage AS (
-        SELECT id, rate_limit_per_minute AS request_limit, checked,
-          date_trunc('minute', checked) AS window_start,
-          CASE WHEN rate_window_start = date_trunc('minute', checked)
-            THEN rate_request_count ELSE 0 END AS used
-        FROM checked_at
-      ), consumed AS (
-        UPDATE api_keys k SET rate_window_start = usage.window_start, rate_request_count = usage.used + 1
-        FROM usage WHERE k.id = usage.id AND usage.used < usage.request_limit
-        RETURNING k.id
-      )
-      SELECT usage.request_limit, consumed.id IS NOT NULL AS allowed,
-        greatest(0, usage.request_limit - usage.used - CASE WHEN consumed.id IS NULL THEN 0 ELSE 1 END) AS remaining,
-        ceil(extract(epoch FROM usage.window_start + interval '1 minute' - usage.checked))::integer AS retry_after
-      FROM usage LEFT JOIN consumed ON consumed.id = usage.id`, [id])
-      return rows[0]
+    async consumeRequest(id: string) {
+      const activeKey = { id, revoked_at: null }
+      for (;;) {
+        const windowStart = new Date(Math.floor(Date.now() / minuteMs) * minuteMs)
+        const [incremented] = await db.apiKey.updateManyAndReturn({
+          where: {
+            ...activeKey, rate_window_start: windowStart,
+            rate_request_count: { lt: db.apiKey.fields.rate_limit_per_minute },
+          },
+          data: { rate_request_count: { increment: 1 } }, select: usageFields,
+        })
+        if (incremented) return usage(incremented, windowStart, true)
+        const [reset] = await db.apiKey.updateManyAndReturn({
+          where: { ...activeKey, OR: [{ rate_window_start: null }, { rate_window_start: { lt: windowStart } }] },
+          data: { rate_window_start: windowStart, rate_request_count: 1 }, select: usageFields,
+        })
+        if (reset) return usage(reset, windowStart, true)
+        const current = await db.apiKey.findFirst({
+          where: activeKey, select: { ...usageFields, rate_window_start: true },
+        })
+        if (!current) return undefined
+        if (Date.now() >= windowStart.getTime() + minuteMs) continue
+        // Another request may have opened this window between the two updates.
+        if (current.rate_window_start?.getTime() === windowStart.getTime()
+          && current.rate_request_count < current.rate_limit_per_minute) continue
+        return usage(current, current.rate_window_start ?? windowStart, false)
+      }
     },
-    async revoke(userId: string, id: string): Promise<{ id: string } | undefined> {
-      return (await db.query<{ id: string }>(`UPDATE api_keys SET revoked_at = COALESCE(revoked_at, now()), encrypted_secret = NULL
-        WHERE user_id = $1 AND id = $2 RETURNING id`, [userId, id])).rows[0]
+    async revoke(userId: string, id: string) {
+      // Preserve the original timestamp when revocation is repeated.
+      const revoked = await db.apiKey.updateMany({
+        where: { id, user_id: userId, revoked_at: null },
+        data: { revoked_at: new Date(), encrypted_secret: null },
+      })
+      if (revoked.count) return true
+      return (await db.apiKey.count({ where: { id, user_id: userId } })) > 0
     },
-    async findOwner(hash: string): Promise<KeyOwner | undefined> {
-      return (await db.query<KeyOwner>(`SELECT k.id AS key_id, u.id, u.name, u.email, r.name AS role, r.is_super_admin, r.is_reseller, r.permissions
-        FROM api_keys k JOIN users u ON u.id = k.user_id JOIN roles r ON r.id = u.role_id
-        WHERE k.secret_hash = $1 AND k.revoked_at IS NULL AND u.active`, [hash])).rows[0]
+    async findOwner(hash: string) {
+      const key = await db.apiKey.findFirst({
+        where: { secret_hash: hash, revoked_at: null, user: { active: true } },
+        select: { id: true, user: { select: { id: true, name: true, email: true, role: true } } },
+      })
+      return key ? { ...principalRow(key.user), key_id: key.id } : undefined
     },
   }
 }

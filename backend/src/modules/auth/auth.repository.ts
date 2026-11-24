@@ -1,28 +1,42 @@
-import type { Pool } from "pg"
+import type { Database } from "../../db/prisma.ts"
+import type { Role, User } from "../../generated/prisma/client.ts"
+import { isPermission } from "../../permissions.ts"
 import type { AccountPrincipalRow } from "./auth.service.ts"
 
-const account = "SELECT u.*, r.name AS role, r.is_super_admin, r.is_reseller, r.permissions FROM users u JOIN roles r ON r.id = u.role_id"
-
-interface Account extends AccountPrincipalRow {
-  password_hash: string
-  active: boolean
+type PrincipalAccount = Pick<User, "id" | "name" | "email"> & {
+  role: Pick<Role, "name" | "is_super_admin" | "is_reseller" | "permissions">
 }
 
-export function authRepository(db: Pool) {
+export function principalRow(account: PrincipalAccount): AccountPrincipalRow {
   return {
-    async findByEmail(email: string): Promise<Account | undefined> {
-      return (await db.query<Account>(`${account} WHERE u.email = $1`, [email])).rows[0]
+    id: account.id, name: account.name, email: account.email, role: account.role.name,
+    is_super_admin: account.role.is_super_admin, is_reseller: account.role.is_reseller,
+    permissions: account.role.permissions.filter(isPermission),
+  }
+}
+
+export function authRepository(db: Database) {
+  return {
+    async findByEmail(email: string) {
+      const account = await db.user.findUnique({ where: { email }, include: { role: true } })
+      if (!account) return undefined
+      return { ...principalRow(account), active: account.active, password_hash: account.password_hash }
     },
     async createSession(id: string, userId: string, expiresAt: Date) {
-      await db.query("DELETE FROM sessions WHERE expires_at <= now()")
-      await db.query("INSERT INTO sessions (id, user_id, expires_at) VALUES ($1, $2, $3)", [id, userId, expiresAt])
+      await db.$transaction([
+        db.session.deleteMany({ where: { expires_at: { lte: new Date() } } }),
+        db.session.create({ data: { id, user_id: userId, expires_at: expiresAt } }),
+      ])
     },
-    async findSession(id: string, userId: string): Promise<Account | undefined> {
-      return (await db.query<Account>(`${account} JOIN sessions s ON s.user_id = u.id
-        WHERE s.id = $1 AND u.id = $2 AND u.active AND s.expires_at > now()`, [id, userId])).rows[0]
+    async findSession(id: string, userId: string) {
+      const session = await db.session.findFirst({
+        where: { id, user_id: userId, expires_at: { gt: new Date() }, user: { active: true } },
+        select: { user: { select: { id: true, name: true, email: true, role: true } } },
+      })
+      return session ? principalRow(session.user) : undefined
     },
     async deleteSession(id: string) {
-      await db.query("DELETE FROM sessions WHERE id = $1", [id])
+      await db.session.deleteMany({ where: { id } })
     },
   }
 }

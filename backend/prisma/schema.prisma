@@ -1,0 +1,110 @@
+generator client {
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  moduleFormat        = "esm"
+  importFileExtension = "ts"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Role {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name           String
+  permissions    String[] @default([])
+  is_super_admin Boolean  @default(false)
+  is_reseller    Boolean  @default(false)
+  reseller_id    String?  @db.Uuid
+  reseller       User?    @relation("ResellerRoles", fields: [reseller_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users          User[]   @relation("UserRole")
+
+  @@map("roles")
+}
+
+model User {
+  id            String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name          String
+  email         String           @unique
+  password_hash String
+  role_id       String           @db.Uuid
+  role          Role             @relation("UserRole", fields: [role_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  active        Boolean          @default(true)
+  created_at    DateTime         @default(now()) @db.Timestamptz(6)
+  roles         Role[]           @relation("ResellerRoles")
+  sessions      Session[]
+  api_keys      ApiKey[]
+  history       ScreeningEvent[]
+
+  @@map("users")
+}
+
+model Session {
+  id         String   @id @db.Uuid
+  user_id    String   @db.Uuid
+  user       User     @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  expires_at DateTime @db.Timestamptz(6)
+
+  @@map("sessions")
+}
+
+model ApiKey {
+  id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id               String    @db.Uuid
+  user                  User      @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  name                  String
+  prefix                String
+  secret_hash           String    @unique
+  created_at            DateTime  @default(now()) @db.Timestamptz(6)
+  revoked_at            DateTime? @db.Timestamptz(6)
+  rate_limit_per_minute Int       @default(60)
+  rate_window_start     DateTime? @db.Timestamptz(6)
+  rate_request_count    Int       @default(0)
+  encrypted_secret      Bytes?
+
+  @@map("api_keys")
+}
+
+model RegistryGeneration {
+  id           String           @id
+  published_at DateTime         @default(now()) @db.Timestamptz(6)
+  active       Boolean          @default(false)
+  numbers      RegistryNumber[]
+  history      ScreeningEvent[]
+
+  @@map("registry_generations")
+}
+
+model RegistryNumber {
+  generation_id String
+  phone         String
+  jurisdiction  String
+  generation    RegistryGeneration @relation(fields: [generation_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@id([generation_id, phone, jurisdiction])
+  @@map("registry_numbers")
+}
+
+model ScreeningEvent {
+  id                  String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id             String             @db.Uuid
+  user                User               @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  generation_id       String
+  generation          RegistryGeneration @relation(fields: [generation_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  masked_phone        String
+  exists_in_registry  Boolean
+  channel             String
+  checked_at          DateTime           @default(now()) @db.Timestamptz(6)
+  phone_search_tokens String[]           @default([])
+  legacy_phone_suffix String?
+
+  @@index([user_id, checked_at(sort: Desc), id(sort: Desc)], map: "screening_recent")
+  @@map("screening_events")
+}
+
+model LegacySchemaMigration {
+  version    String   @id
+  applied_at DateTime @default(now()) @db.Timestamptz(6)
+
+  @@map("schema_migrations")
+}

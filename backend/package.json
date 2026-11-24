@@ -3,12 +3,14 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "node --env-file-if-exists=.env --watch src/server.ts",
+    "dev": "pnpm db:generate && node --env-file-if-exists=.env --watch src/server.ts",
     "start": "node --env-file-if-exists=.env src/server.ts",
-    "db:setup": "node --env-file-if-exists=.env src/db/setup.ts",
-    "db:migrate": "node --env-file-if-exists=.env src/db/setup.ts migrate",
-    "db:seed": "node --env-file-if-exists=.env src/db/setup.ts seed",
-    "typecheck": "tsc --noEmit"
+    "db:setup": "pnpm db:generate && pnpm db:migrate && pnpm db:seed",
+    "db:generate": "prisma generate --config prisma.config.ts",
+    "db:migrate": "prisma migrate deploy --config prisma.config.ts",
+    "db:baseline": "prisma migrate resolve --applied 0001_existing_schema --config prisma.config.ts",
+    "db:seed": "prisma db seed --config prisma.config.ts",
+    "typecheck": "pnpm db:generate && tsc --noEmit"
   },
   "dependencies": {
     "exceljs": "4.4.0",
@@ -17,14 +19,15 @@
     "helmet": "^8.1.0",
     "jose": "^6.1.0",
     "pdfkit": "^0.21.0",
-    "pg": "^8.16.0",
-    "zod": "^4.1.0"
+    "zod": "^4.1.0",
+    "@prisma/client": "7.10.0",
+    "@prisma/adapter-pg": "7.10.0"
   },
   "devDependencies": {
     "@types/express": "^5.0.0",
     "@types/node": "^22.0.0",
     "@types/pdfkit": "^0.17.0",
-    "@types/pg": "^8.0.0",
-    "typescript": "~5.9.3"
+    "typescript": "~5.9.3",
+    "prisma": "7.10.0"
   }
 }

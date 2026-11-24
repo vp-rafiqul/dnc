@@ -20,12 +20,13 @@ export function screeningController(service: ReturnType<typeof screeningService>
   router.post("/screening/history/export/:format", ...authenticate, canReadHistory, async (req, res) => {
     const format = reportFormat.parse(req.params.format)
     const abort = new AbortController()
-    const rows = history.report(req.user.id, req.body, abort.signal)
     const onClose = () => { if (!res.writableFinished) abort.abort() }
     res.once("close", onClose)
     try {
-      res.attachment(`screening-history.${format}`).type(reportTypes[format])
-      await writeHistoryReport(format, rows, res, abort.signal)
+      await history.report(req.user.id, req.body, abort.signal, rows => {
+        res.attachment(`screening-history.${format}`).type(reportTypes[format])
+        return writeHistoryReport(format, rows, res, abort.signal)
+      })
     } catch (error) {
       if (!abort.signal.aborted) throw error
     } finally {
