@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react"
 import type { ReactNode } from "react"
-import type { Credentials, Principal, SessionPayload } from "../../shared/contracts"
+import type { Credentials, Principal, RegistrationInput, SessionPayload } from "../../shared/contracts"
 import { api, ApiError, errorMessage, setAccessToken } from "../lib/api"
 
 interface SessionState {
@@ -10,6 +10,7 @@ interface SessionState {
   error: string
   restoring: boolean
   login: (body: Credentials) => Promise<void>
+  register: (body: RegistrationInput) => Promise<void>
   logout: () => Promise<void>
   refresh: () => Promise<void>
 }
@@ -64,6 +65,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setError("")
     setUser(data.user)
   }
+  async function register(body: RegistrationInput) {
+    const data = await api<SessionPayload>("/auth/register", { method: "POST", body, sessionCookie: true })
+    revision.current++
+    setAccessToken(data.accessToken)
+    setError("")
+    setUser(data.user)
+  }
   async function logout() {
     try {
       await api("/auth/logout", { method: "POST", sessionCookie: true })
@@ -74,7 +82,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setAccessToken(undefined)
     setUser(null)
   }
-  return <Session.Provider value={{ user, error, restoring, login, logout, refresh }}>{children}</Session.Provider>
+  return <Session.Provider value={{ user, error, restoring, login, register, logout, refresh }}>{children}</Session.Provider>
 }
 
 export function useSession() {

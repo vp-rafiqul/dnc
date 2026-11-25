@@ -1,10 +1,14 @@
 import { config } from "./config.ts"
 import { createApp } from "./app.ts"
 import { createDatabase } from "./db/prisma.ts"
+import { startSellerJobs } from "./modules/sellers/sellers.jobs.ts"
+import { sellersRepository } from "./modules/sellers/sellers.repository.ts"
 
 const settings = config()
 const db = createDatabase(settings.databaseUrl)
-const server = createApp(db, settings).listen(settings.port, settings.host, async (error?: NodeJS.ErrnoException) => {
+const sellers = sellersRepository(db)
+let stopSellerJobs: (() => void) | undefined
+const server = createApp(db, settings, sellers).listen(settings.port, settings.host, async (error?: NodeJS.ErrnoException) => {
   if (error) {
     const address = `${settings.host}:${settings.port}`
     const message = error.code === "EADDRINUSE"
@@ -16,9 +20,11 @@ const server = createApp(db, settings).listen(settings.port, settings.host, asyn
     return
   }
   console.log(`DNC API listening on http://${settings.host}:${settings.port}`)
+  stopSellerJobs = startSellerJobs(sellers)
 })
 
 function shutdown() {
+  stopSellerJobs?.()
   server.close(() => void db.$disconnect())
 }
 process.once("SIGINT", shutdown)

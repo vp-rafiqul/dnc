@@ -1,4 +1,5 @@
 import type { Database } from "../../db/prisma.ts"
+import { Prisma } from "../../generated/prisma/client.ts"
 import type { Role, User } from "../../generated/prisma/client.ts"
 import { isPermission } from "../../permissions.ts"
 import type { AccountPrincipalRow } from "./auth.service.ts"
@@ -21,6 +22,20 @@ export function authRepository(db: Database) {
       const account = await db.user.findUnique({ where: { email }, include: { role: true } })
       if (!account) return undefined
       return { ...principalRow(account), active: account.active, password_hash: account.password_hash }
+    },
+    async createSelfServiceUser(name: string, email: string, passwordHash: string) {
+      const role = await db.role.findFirst({ where: { is_self_service: true }, select: { id: true } })
+      if (!role) return "unavailable" as const
+      try {
+        const account = await db.user.create({
+          data: { name, email, password_hash: passwordHash, role_id: role.id },
+          select: { id: true, name: true, email: true, role: true },
+        })
+        return principalRow(account)
+      } catch (error) {
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") return "exists" as const
+        throw error
+      }
     },
     async createSession(id: string, userId: string, expiresAt: Date) {
       await db.$transaction([

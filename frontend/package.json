@@ -8,6 +8,7 @@
     "typecheck": "node scripts/next.mts typegen && tsc --noEmit"
   },
   "dependencies": {
+    "@stripe/stripe-js": "^9.17.0",
     "lucide-react": "^0.577.0",
     "next": "^16.2.0",
     "react": "^19.2.0",

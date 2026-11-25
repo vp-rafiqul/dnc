@@ -10,31 +10,40 @@ datasource db {
 }
 
 model Role {
-  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name           String
-  permissions    String[] @default([])
-  is_super_admin Boolean  @default(false)
-  is_reseller    Boolean  @default(false)
-  reseller_id    String?  @db.Uuid
-  reseller       User?    @relation("ResellerRoles", fields: [reseller_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  users          User[]   @relation("UserRole")
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name            String
+  permissions     String[] @default([])
+  is_super_admin  Boolean  @default(false)
+  is_reseller     Boolean  @default(false)
+  is_self_service Boolean  @default(false)
+  reseller_id     String?  @db.Uuid
+  reseller        User?    @relation("ResellerRoles", fields: [reseller_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users           User[]   @relation("UserRole")
 
   @@map("roles")
 }
 
 model User {
-  id            String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name          String
-  email         String           @unique
-  password_hash String
-  role_id       String           @db.Uuid
-  role          Role             @relation("UserRole", fields: [role_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  active        Boolean          @default(true)
-  created_at    DateTime         @default(now()) @db.Timestamptz(6)
-  roles         Role[]           @relation("ResellerRoles")
-  sessions      Session[]
-  api_keys      ApiKey[]
-  history       ScreeningEvent[]
+  id                     String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name                   String
+  email                  String                @unique
+  password_hash          String
+  role_id                String                @db.Uuid
+  role                   Role                  @relation("UserRole", fields: [role_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  active                 Boolean               @default(true)
+  created_at             DateTime              @default(now()) @db.Timestamptz(6)
+  roles                  Role[]                @relation("ResellerRoles")
+  sessions               Session[]
+  api_keys               ApiKey[]
+  history                ScreeningEvent[]
+  seller                 Seller?               @relation("SellerOwner")
+  signed_authorizations  SellerAuthorization[] @relation("AuthorizationSigner")
+  revoked_authorizations SellerAuthorization[] @relation("AuthorizationRevoker")
+  verified_subscriptions SellerSubscription[]  @relation("SubscriptionVerifier")
+  seller_reviews         SellerVerification[]
+  seller_events          SellerEvent[]
+  confirmed_payments     SellerPayment[]
+  billing_updates        BillingSettings[]
 
   @@map("users")
 }
@@ -100,6 +109,217 @@ model ScreeningEvent {
 
   @@index([user_id, checked_at(sort: Desc), id(sort: Desc)], map: "screening_recent")
   @@map("screening_events")
+}
+
+model Seller {
+  id                   String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  owner_id             String                @unique @db.Uuid
+  owner                User                  @relation("SellerOwner", fields: [owner_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  legal_name           String
+  organization_id      String
+  san_ciphertext       Bytes
+  san_key_id           String
+  san_last4            String
+  representative_name  String
+  representative_title String
+  representative_email String
+  representative_phone String
+  reseller_access      Boolean               @default(false)
+  created_at           DateTime              @default(now()) @db.Timestamptz(6)
+  updated_at           DateTime              @default(now()) @db.Timestamptz(6)
+  authorizations       SellerAuthorization[]
+  subscriptions        SellerSubscription[]
+  notices              SellerNotice[]
+  events               SellerEvent[]
+  payments             SellerPayment[]
+
+  @@map("sellers")
+}
+
+model SellerAuthorization {
+  id                 String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  seller_id          String               @db.Uuid
+  seller             Seller               @relation(fields: [seller_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  signer_name        String
+  signer_title       String
+  signer_email       String
+  signed_by          String               @db.Uuid
+  signer             User                 @relation("AuthorizationSigner", fields: [signed_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  signed_at          DateTime             @default(now()) @db.Timestamptz(6)
+  permitted_scope    String[]
+  expires_at         DateTime             @db.Timestamptz(6)
+  revocation_channel String
+  revocation_contact String?
+  evidence           Json
+  revoked_at         DateTime?            @db.Timestamptz(6)
+  revoked_by         String?              @db.Uuid
+  revoker            User?                @relation("AuthorizationRevoker", fields: [revoked_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  revocation_reason  String?
+  verifications      SellerVerification[]
+
+  @@map("seller_authorizations")
+}
+
+model SellerSubscription {
+  id                   String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  seller_id            String               @db.Uuid
+  seller               Seller               @relation(fields: [seller_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  status               String               @default("AWAITING_PAYMENT")
+  requested_area_codes String[]             @default([])
+  coverage_scope       String?
+  selected_states      String[]             @default([])
+  billing_cycle        String?
+  amount_cents         Int?
+  currency             String?
+  quote                Json?
+  paid_at              DateTime?            @db.Timestamptz(6)
+  paid_through         DateTime?            @db.Timestamptz(6)
+  payments             SellerPayment[]
+  status_reason        String?
+  period_start         DateTime?            @db.Timestamptz(6)
+  period_end           DateTime?            @db.Timestamptz(6)
+  verified_at          DateTime?            @db.Timestamptz(6)
+  verified_by          String?              @db.Uuid
+  verifier             User?                @relation("SubscriptionVerifier", fields: [verified_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  next_review_at       DateTime?            @db.Timestamptz(6)
+  created_at           DateTime             @default(now()) @db.Timestamptz(6)
+  updated_at           DateTime             @default(now()) @db.Timestamptz(6)
+  verifications        SellerVerification[]
+  coverage             SellerCoverage[]
+  notices              SellerNotice[]
+
+  @@index([seller_id, created_at(sort: Desc)], map: "seller_subscriptions_seller")
+  @@map("seller_subscriptions")
+}
+
+model SellerVerification {
+  id                   String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  subscription_id      String               @db.Uuid
+  subscription         SellerSubscription   @relation(fields: [subscription_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  authorization_id     String?              @db.Uuid
+  authorization        SellerAuthorization? @relation(fields: [authorization_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  reviewer_id          String               @db.Uuid
+  reviewer             User                 @relation(fields: [reviewer_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  reviewer_name        String
+  reviewer_email       String
+  outcome              String
+  san_period_start     DateTime?            @db.Timestamptz(6)
+  san_period_end       DateTime?            @db.Timestamptz(6)
+  confirmed_area_codes String[]             @default([])
+  evidence             Json
+  reasons              String[]             @default([])
+  created_at           DateTime             @default(now()) @db.Timestamptz(6)
+  coverage             SellerCoverage[]
+
+  @@index([subscription_id, created_at(sort: Desc)], map: "seller_verifications_subscription")
+  @@map("seller_verifications")
+}
+
+model SellerCoverage {
+  subscription_id String             @db.Uuid
+  subscription    SellerSubscription @relation(fields: [subscription_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  area_code       String
+  verification_id String             @db.Uuid
+  verification    SellerVerification @relation(fields: [verification_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  valid_from      DateTime           @db.Timestamptz(6)
+  valid_until     DateTime           @db.Timestamptz(6)
+  ended_at        DateTime?          @db.Timestamptz(6)
+  end_reason      String?
+
+  @@id([subscription_id, area_code])
+  @@map("seller_coverage")
+}
+
+model SellerNotice {
+  id              String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  seller_id       String              @db.Uuid
+  seller          Seller              @relation(fields: [seller_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  subscription_id String?             @db.Uuid
+  subscription    SellerSubscription? @relation(fields: [subscription_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  kind            String
+  audience        String
+  message         String
+  due_at          DateTime            @db.Timestamptz(6)
+  delivered_at    DateTime?           @db.Timestamptz(6)
+  cancelled_at    DateTime?           @db.Timestamptz(6)
+  created_at      DateTime            @default(now()) @db.Timestamptz(6)
+
+  @@index([seller_id, due_at(sort: Desc)], map: "seller_notices_seller")
+  @@map("seller_notices")
+}
+
+model SellerEvent {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  seller_id  String   @db.Uuid
+  seller     Seller   @relation(fields: [seller_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  actor_id   String?  @db.Uuid
+  actor      User?    @relation(fields: [actor_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  action     String
+  detail     Json     @default("{}")
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([seller_id, created_at(sort: Desc)], map: "seller_events_recent")
+  @@map("seller_events")
+}
+
+model SellerPayment {
+  id                    String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  subscription_id       String             @db.Uuid
+  subscription          SellerSubscription @relation(fields: [subscription_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  seller_id             String             @db.Uuid
+  seller                Seller             @relation(fields: [seller_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  method                String
+  status                String             @default("PENDING")
+  amount_cents          Int
+  currency              String
+  reference             String             @unique
+  stripe_session_id     String?            @unique
+  stripe_payment_intent String?
+  checkout_url          String?
+  confirmed_by          String?            @db.Uuid
+  confirmer             User?              @relation(fields: [confirmed_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  confirmed_at          DateTime?          @db.Timestamptz(6)
+  details               Json               @default("{}")
+  created_at            DateTime           @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime           @default(now()) @db.Timestamptz(6)
+
+  @@index([subscription_id, created_at(sort: Desc)], map: "seller_payments_subscription")
+  @@map("seller_payments")
+}
+
+model CoverageState {
+  code       String             @id
+  name       String
+  active     Boolean            @default(true)
+  area_codes CoverageAreaCode[]
+
+  @@map("coverage_states")
+}
+
+model CoverageAreaCode {
+  area_code           String        @id
+  state_code          String
+  state               CoverageState @relation(fields: [state_code], references: [code], onDelete: NoAction, onUpdate: NoAction)
+  active              Boolean       @default(true)
+  monthly_price_cents Int?
+  yearly_price_cents  Int?
+  created_at          DateTime      @default(now()) @db.Timestamptz(6)
+
+  @@index([state_code], map: "coverage_area_codes_state")
+  @@map("coverage_area_codes")
+}
+
+model BillingSettings {
+  id                  Int      @id @default(1)
+  monthly_price_cents Int      @default(500)
+  yearly_price_cents  Int      @default(6000)
+  currency            String   @default("usd")
+  bank_instructions   String   @default("")
+  updated_at          DateTime @default(now()) @db.Timestamptz(6)
+  updated_by          String?  @db.Uuid
+  updater             User?    @relation(fields: [updated_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@map("billing_settings")
 }
 
 model LegacySchemaMigration {

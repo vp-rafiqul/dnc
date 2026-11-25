@@ -1,6 +1,7 @@
 import { randomBytes, randomUUID, scrypt, timingSafeEqual } from "node:crypto"
 import { SignJWT, jwtVerify } from "jose"
 import type { JWTPayload } from "jose"
+import { z } from "zod"
 import { HttpError } from "../../errors.ts"
 import { permissionIds, resellerPermissions } from "../../permissions.ts"
 import type { Permission, Principal } from "../../../../shared/contracts.ts"
@@ -39,8 +40,33 @@ export function toPrincipal(row: AccountPrincipalRow): Principal {
   }
 }
 
+const registration = z.object({
+  name: z.string().trim().min(2, "Enter your name.").max(80),
+  email: z.email("Enter a valid email address.").max(254).transform(value => value.toLowerCase()),
+  password: z.string().min(12, "Use at least 12 characters for the password.").max(128),
+})
+
 export function authService(repository: ReturnType<typeof authRepository>, secret: Uint8Array) {
+  async function startSession(user: AccountPrincipalRow) {
+    const sessionId = randomUUID()
+    const expiresAt = Math.floor(Date.now() / 1000) + sessionSeconds
+    const token = await new SignJWT({})
+      .setProtectedHeader({ alg: "HS256" }).setSubject(user.id).setJti(sessionId)
+      .setIssuer(jwtOptions.issuer).setAudience(jwtOptions.audience)
+      .setIssuedAt().setExpirationTime(expiresAt).sign(secret)
+    await repository.createSession(sessionId, user.id, new Date(expiresAt * 1000))
+    return { token, maxAge: sessionSeconds * 1000, user: toPrincipal(user) }
+  }
+
   return {
+    // Public seller sign-up: the account gets the self-service seller role and is signed in right away.
+    async register(body: unknown) {
+      const { name, email, password } = registration.parse(body)
+      const user = await repository.createSelfServiceUser(name, email, await hashPassword(password))
+      if (user === "unavailable") throw new HttpError(503, "Seller sign-up is not available yet. Contact support.")
+      if (user === "exists") throw new HttpError(409, "An account with this email already exists. Sign in instead.")
+      return startSession(user)
+    },
     async login(email: string, password: string) {
       const user = await repository.findByEmail(email.toLowerCase())
       const [salt, expected] = user?.password_hash.split(":") || ["unknown-account", "00".repeat(64)]
@@ -48,15 +74,7 @@ export function authService(repository: ReturnType<typeof authRepository>, secre
       if (!timingSafeEqual(actual, Buffer.from(expected, "hex")) || !user?.active) {
         throw new HttpError(401, "Invalid email or password.")
       }
-
-      const sessionId = randomUUID()
-      const expiresAt = Math.floor(Date.now() / 1000) + sessionSeconds
-      const token = await new SignJWT({})
-        .setProtectedHeader({ alg: "HS256" }).setSubject(user.id).setJti(sessionId)
-        .setIssuer(jwtOptions.issuer).setAudience(jwtOptions.audience)
-        .setIssuedAt().setExpirationTime(expiresAt).sign(secret)
-      await repository.createSession(sessionId, user.id, new Date(expiresAt * 1000))
-      return { token, maxAge: sessionSeconds * 1000, user: toPrincipal(user) }
+      return startSession(user)
     },
     async authenticate(token: string) {
       let claims: JWTPayload

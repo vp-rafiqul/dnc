@@ -4,7 +4,7 @@ import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import { useEffect, useState } from "react"
 import type { ReactNode } from "react"
-import { ChevronRight, Clock3, FlaskConical, KeyRound, LogOut, PanelLeft, ScanLine, Shield, ShieldCheck, UsersRound } from "lucide-react"
+import { BadgeCheck, Building2, CircleDollarSign, ChevronRight, Clock3, FlaskConical, KeyRound, LogOut, PanelLeft, ScanLine, Shield, ShieldCheck, UsersRound } from "lucide-react"
 import { ThemeSwitch } from "./theme"
 import { useSession } from "./session"
 import { errorMessage } from "../lib/api"
@@ -14,8 +14,11 @@ const sections = [
   { href: "/screening", label: "Screening", permission: "page.screening", icon: ScanLine },
   { href: "/history", label: "History", permission: "page.history", icon: Clock3 },
   { href: "/api-keys", label: "API keys", permission: "page.keys", icon: KeyRound },
+  { href: "/seller", label: "Seller profile", permission: "page.seller", icon: Building2 },
   { href: "/users", label: "Users", permission: "page.users", icon: UsersRound, admin: true },
   { href: "/roles", label: "Roles", permission: "page.roles", icon: Shield, admin: true },
+  { href: "/seller-review", label: "Seller verification", permission: "page.seller_review", icon: BadgeCheck, admin: true },
+  { href: "/billing", label: "Billing", permission: "page.billing", icon: CircleDollarSign, admin: true },
 ] satisfies { href: string; label: string; permission: Permission; icon: typeof Shield; admin?: boolean }[]
 
 export function Brand() {

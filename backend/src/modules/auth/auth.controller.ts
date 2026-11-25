@@ -6,7 +6,7 @@ import type { authService } from "./auth.service.ts"
 
 const credentials = z.object({ email: z.email().max(254), password: z.string().min(1).max(128) })
 
-export function authController(service: ReturnType<typeof authService>, authenticate: RequestHandler, restoreSession: RequestHandler, loginLimiter: RequestHandler, secure: boolean) {
+export function authController(service: ReturnType<typeof authService>, authenticate: RequestHandler, restoreSession: RequestHandler, loginLimiter: RequestHandler, registerLimiter: RequestHandler, secure: boolean) {
   const router = Router()
   const cookieOptions: CookieOptions = { httpOnly: true, sameSite: "strict", secure, path: "/api" }
 
@@ -15,6 +15,11 @@ export function authController(service: ReturnType<typeof authService>, authenti
     const { token, maxAge, user } = await service.login(email, password)
     if (req.get("x-dnc-workspace") === "1") res.cookie(sessionCookie, token, { ...cookieOptions, maxAge })
     res.json({ user, accessToken: token, tokenType: "Bearer" })
+  })
+  router.post("/register", registerLimiter, async (req, res) => {
+    const { token, maxAge, user } = await service.register(req.body)
+    if (req.get("x-dnc-workspace") === "1") res.cookie(sessionCookie, token, { ...cookieOptions, maxAge })
+    res.status(201).json({ user, accessToken: token, tokenType: "Bearer" })
   })
   router.post("/session", restoreSession, (req, res) => {
     res.json({ user: req.user, accessToken: req.sessionToken, tokenType: "Bearer" })

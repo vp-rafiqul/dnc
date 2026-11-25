@@ -23,9 +23,21 @@ import { screeningApiController, screeningController } from "./modules/screening
 import { historyRepository } from "./modules/screening/history.repository.ts"
 import { historySearch } from "./modules/screening/history-search.ts"
 import { historyService } from "./modules/screening/history.service.ts"
+import { sanVault } from "./modules/sellers/san-vault.ts"
+import { sellersRepository } from "./modules/sellers/sellers.repository.ts"
+import { sellersService } from "./modules/sellers/sellers.service.ts"
+import { sellerController, sellerReviewController } from "./modules/sellers/sellers.controller.ts"
+import { billingRepository } from "./modules/billing/billing.repository.ts"
+import { billingService } from "./modules/billing/billing.service.ts"
+import { adminBillingController, sellerBillingController, stripeWebhookController } from "./modules/billing/billing.controller.ts"
+import { stripeClient } from "./modules/billing/stripe.ts"
 
-export function createApp(db: Database, settings: Config) {
+export function createApp(db: Database, settings: Config, sellerRepository = sellersRepository(db)) {
   const app = express()
+  const sellers = sellersService(sellerRepository, sanVault(settings.sanKeys))
+  const stripe = settings.stripe ? stripeClient(settings.stripe) : null
+  const billing = billingService(billingRepository(db), stripe, settings.frontendOrigin, Boolean(settings.stripe?.webhookSecret),
+    settings.stripe?.publishableKey ?? null)
   const auth = authService(authRepository(db), settings.jwtSecret)
   const keys = keysService(keysRepository(db), settings.apiKeyEncryptionKey)
   const search = historySearch(settings.historySearchKey)
@@ -51,6 +63,8 @@ export function createApp(db: Database, settings: Config) {
     res.set("Cache-Control", "no-store")
     next()
   })
+  // Server-to-server webhook: verified by its Stripe signature, not by browser origin or session.
+  app.use("/api/billing", stripeWebhookController(billing))
   app.use("/api", browserCors(settings.frontendOrigin))
   app.use("/api", screeningApiController(screening, {
     authenticate: keyAuth(keys, invalidKeyLimiter),
@@ -62,9 +76,14 @@ export function createApp(db: Database, settings: Config) {
     await db.registryGeneration.findFirst({ select: { id: true } })
     res.json({ ok: true })
   })
-  app.use("/api/auth", authController(auth, authenticate, restoreSession, limiter(12, "Too many sign-in attempts. Try again in a minute."), settings.secureCookie))
+  app.use("/api/auth", authController(auth, authenticate, restoreSession, limiter(12, "Too many sign-in attempts. Try again in a minute."),
+    limiter(5, "Too many sign-up attempts. Try again in a minute."), settings.secureCookie))
   app.use("/api/keys", keysController(keys, workspaceAuth))
   app.use("/api", screeningController(screening, history, workspaceAuth))
+  app.use("/api/seller/billing", sellerBillingController(billing, workspaceAuth))
+  app.use("/api/seller", sellerController(sellers, workspaceAuth))
+  app.use("/api/admin/sellers", sellerReviewController(sellers, workspaceAuth))
+  app.use("/api/admin/billing", adminBillingController(billing, workspaceAuth))
   app.use("/api/admin", accessController(access, workspaceAuth))
   app.use((req, res) => res.status(404).json({ error: "Endpoint not found." }))
   app.use(errorMiddleware)

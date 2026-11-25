@@ -12,8 +12,36 @@ const registry = [
   ["7135550142", "TX"], ["2065550169", "FEDERAL"], ["2065550169", "WA"],
 ]
 
+const states: [string, string][] = [
+  ["AL", "Alabama"], ["AK", "Alaska"], ["AZ", "Arizona"], ["AR", "Arkansas"], ["CA", "California"], ["CO", "Colorado"],
+  ["CT", "Connecticut"], ["DE", "Delaware"], ["DC", "District of Columbia"], ["FL", "Florida"], ["GA", "Georgia"],
+  ["HI", "Hawaii"], ["ID", "Idaho"], ["IL", "Illinois"], ["IN", "Indiana"], ["IA", "Iowa"], ["KS", "Kansas"],
+  ["KY", "Kentucky"], ["LA", "Louisiana"], ["ME", "Maine"], ["MD", "Maryland"], ["MA", "Massachusetts"],
+  ["MI", "Michigan"], ["MN", "Minnesota"], ["MS", "Mississippi"], ["MO", "Missouri"], ["MT", "Montana"],
+  ["NE", "Nebraska"], ["NV", "Nevada"], ["NH", "New Hampshire"], ["NJ", "New Jersey"], ["NM", "New Mexico"],
+  ["NY", "New York"], ["NC", "North Carolina"], ["ND", "North Dakota"], ["OH", "Ohio"], ["OK", "Oklahoma"],
+  ["OR", "Oregon"], ["PA", "Pennsylvania"], ["RI", "Rhode Island"], ["SC", "South Carolina"], ["SD", "South Dakota"],
+  ["TN", "Tennessee"], ["TX", "Texas"], ["UT", "Utah"], ["VT", "Vermont"], ["VA", "Virginia"], ["WA", "Washington"],
+  ["WV", "West Virginia"], ["WI", "Wisconsin"], ["WY", "Wyoming"],
+]
+// A starter set covering the synthetic registry; admins add the remaining area codes under Billing.
+const starterAreaCodes: [string, string][] = [
+  ["212", "NY"], ["718", "NY"], ["305", "FL"], ["786", "FL"], ["415", "CA"], ["213", "CA"], ["202", "DC"],
+  ["312", "IL"], ["617", "MA"], ["713", "TX"], ["214", "TX"], ["206", "WA"],
+]
+
 try {
   await serializable(db, async tx => {
+    await tx.coverageState.createMany({ data: states.map(([code, name]) => ({ code, name })), skipDuplicates: true })
+    await tx.coverageAreaCode.createMany({
+      data: starterAreaCodes.map(([area_code, state_code]) => ({ area_code, state_code })), skipDuplicates: true,
+    })
+    await tx.billingSettings.createMany({ data: [{ id: 1 }], skipDuplicates: true })
+    if (!await tx.role.findFirst({ where: { is_self_service: true }, select: { id: true } })) {
+      const name = await tx.role.findFirst({ where: { name: { equals: "Seller", mode: "insensitive" } }, select: { id: true } })
+        ? "Self-registered seller" : "Seller"
+      await tx.role.create({ data: { name, is_self_service: true, permissions: ["page.seller", "seller.manage"] } })
+    }
     await tx.role.createMany({ data: [{ name: "Super Admin", is_super_admin: true }], skipDuplicates: true })
     const role = await tx.role.findFirst({ where: { is_super_admin: true }, select: { id: true } })
     if (!role) throw new Error("The Super Admin role could not be seeded")
